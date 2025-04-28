@@ -42,12 +42,6 @@ NOTE_DICT_TEMPLATE = {
     "audio": list()
 }
 
-CONFIG_PATH = os.path.expanduser(
-    os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),
-        "obsidian_to_anki_config.ini"
-    )
-)
 CONFIG_DATA = dict()
 
 DATA_PATH = os.path.expanduser(
@@ -203,12 +197,10 @@ def load_anki():
         )
         return False
 
-
-def main():
-    """Main functionality of script."""
-    if not os.path.exists(CONFIG_PATH):
-        Config.update_config()
-    App()
+class DuplicateError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
 
 
 class AnkiConnect:
@@ -236,6 +228,8 @@ class AnkiConnect:
         if 'result' not in response:
             raise Exception('response is missing required result field')
         if response['error'] is not None:
+            if "Cannot create note because it is a duplicate" in response['error']:
+                raise DuplicateError(response['error'])
             raise Exception(response['error'])
         return response['result']
 
@@ -748,24 +742,6 @@ class Config:
             "Anki Profile", ""
         )
 
-    def update_config():
-        """Update config with new notes."""
-        print("Updating configuration file...")
-        config = configparser.ConfigParser()
-        config.optionxform = str
-        if os.path.exists(CONFIG_PATH):
-            print("Config file exists, reading...")
-            config.read(CONFIG_PATH, encoding='utf-8-sig')
-        note_types = AnkiConnect.invoke("modelNames")
-        config.setdefault("Custom Regexps", dict())
-        for note in note_types:
-            config["Custom Regexps"].setdefault(note, "")
-        Config.setup_syntax(config)
-        Config.setup_defaults(config)
-        with open(CONFIG_PATH, "w", encoding='utf_8') as configfile:
-            config.write(configfile)
-        print("Configuration file updated!")
-
     @staticmethod
     def load_syntax(config):
         """Reads and loads syntax from the config object."""
@@ -830,7 +806,7 @@ class Config:
         print("Loading configuration file...")
         config = configparser.ConfigParser()
         config.optionxform = str  # Allows for case sensitivity
-        config.read(CONFIG_PATH, encoding='utf-8-sig')
+        config.read(args.config_path, encoding='utf-8-sig')
         Config.load_syntax(config)
         Config.load_defaults(config)
         CONFIG_DATA["CUSTOM_REGEXPS"] = config["Custom Regexps"]
@@ -891,10 +867,6 @@ class App:
             no_args = False
             Data.create_data_file()
         self.gen_regexp()
-        if args.config:
-            no_args = False
-            webbrowser.open(CONFIG_PATH)
-            return
         if args.path:
             no_args = False
             current = os.getcwd()
@@ -1616,10 +1588,16 @@ class Directory:
         notes_ids = AnkiConnect.parse(response[0])
         cards_ids = AnkiConnect.parse(response[1])
         for note_ids, file in zip(notes_ids, self.files):
-            file.note_ids = [
-                AnkiConnect.parse(response)
-                for response in AnkiConnect.parse(note_ids)
-            ]
+            all_responses = AnkiConnect.parse(note_ids)
+            file.note_ids = []
+            for response in all_responses:
+                parsed_response = None
+                try:
+                    parsed_response = AnkiConnect.parse(response)
+                except DuplicateError as e:
+                    print(f'ERROR: {e}')
+                finally:
+                    file.note_ids.append(parsed_response)
         for card_ids, file in zip(cards_ids, self.files):
             file.card_ids = AnkiConnect.parse(card_ids)
         for file in self.files:
@@ -1676,6 +1654,11 @@ class Directory:
         return {file.filename: file.hash for file in self.files}
 
 
+def valid_file_path(path):
+    if not os.path.isfile(path):
+        raise argparse.ArgumentTypeError(f"'{path}' is not a valid file path or file doesn't exist")
+    return path
+
 def parse_args():
     """Setup the command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -1689,9 +1672,10 @@ def parse_args():
     )
     parser.add_argument(
         "-c", "--config",
-        action="store_true",
-        dest="config",
-        help="Open up config file for editing."
+        default="obsidian_to_anki_config.ini",
+        dest="config_path",
+        type=valid_file_path,
+        help="Path to the config file you want to use"
     )
     parser.add_argument(
         "-u", "--update",
@@ -1730,7 +1714,7 @@ if __name__ == "__main__":
     except TimeoutError:
         print("Couldn't connect to Anki, attempting to open Anki...")
         if load_anki():
-            main()
+            App()
     else:
         print("Connected!")
-        main()
+        App()
