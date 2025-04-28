@@ -16,12 +16,6 @@ import socket
 import subprocess
 import logging
 import hashlib
-try:
-    import gooey
-    GOOEY = True
-except ModuleNotFoundError:
-    print("Gooey not installed, switching to cli...")
-    GOOEY = False
 
 logging.basicConfig(
     filename='obsidian_to_anki_log.log',
@@ -888,18 +882,6 @@ class App:
             Data.load_data_file()
         self.get_fields()
         self.get_ids()
-        if CONFIG_DATA["GUI"] and GOOEY:
-            self.setup_gui_parser()
-        else:
-            self.setup_cli_parser()
-        args = self.parser.parse_args()
-        if CONFIG_DATA["GUI"] and GOOEY:
-            if args.directory:
-                args.path = args.directory
-            elif args.file:
-                args.path = args.file
-            else:
-                args.path = False
         no_args = True
         if args.update:
             no_args = False
@@ -990,79 +972,8 @@ class App:
                     "File Hashes": App.FILE_HASHES
                 }
             )
-        if no_args:
-            self.parser.print_help()
 
-    def setup_parser_optionals(self):
-        """Set up optional arguments for the parser."""
-        self.parser.add_argument(
-            "-c", "--config",
-            action="store_true",
-            dest="config",
-            help="Open up config file for editing."
-        )
-        self.parser.add_argument(
-            "-u", "--update",
-            action="store_true",
-            dest="update",
-            help="Update config file."
-        )
-        self.parser.add_argument(
-            "-r", "--regex",
-            action="store_true",
-            dest="regex",
-            help="Use custom regex syntax.",
-            default=CONFIG_DATA["Regex"]
-        )
-        self.parser.add_argument(
-            "-m", "--mediaupdate",
-            action="store_true",
-            dest="mediaupdate",
-            help="Force addition of media files."
-        )
-        self.parser.add_argument(
-            "-R", "--recurse",
-            action="store_true",
-            dest="recurse",
-            help="Recursively scan subfolders."
-        )
 
-    if GOOEY:
-        @ gooey.Gooey(use_cmd_args=True)
-        def setup_gui_parser(self):
-            """Set up the GUI argument parser."""
-            self.parser = gooey.GooeyParser(
-                description="Add cards to Anki from a markdown or text file."
-            )
-            path_group = self.parser.add_mutually_exclusive_group(
-                required=False
-            )
-            path_group.add_argument(
-                "-f", "--file",
-                help="Choose a file to scan.",
-                dest="file",
-                widget='FileChooser'
-            )
-            path_group.add_argument(
-                "-d", "--dir",
-                help="Choose a directory to scan.",
-                dest="directory",
-                widget='DirChooser'
-            )
-            self.setup_parser_optionals()
-
-    def setup_cli_parser(self):
-        """Setup the command-line argument parser."""
-        self.parser = argparse.ArgumentParser(
-            description="Add cards to Anki from a markdown or text file."
-        )
-        self.parser.add_argument(
-            "path",
-            default=False,
-            nargs="?",
-            help="Path to the file or directory you want to scan."
-        )
-        self.setup_parser_optionals()
 
     def gen_regexp(self):
         """Generate the regular expressions used by the app."""
@@ -1765,7 +1676,54 @@ class Directory:
         return {file.filename: file.hash for file in self.files}
 
 
+def parse_args():
+    """Setup the command-line argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Add cards to Anki from a markdown or text file."
+    )
+    parser.add_argument(
+        "path",
+        default=False,
+        nargs="?",
+        help="Path to the file or directory you want to scan."
+    )
+    parser.add_argument(
+        "-c", "--config",
+        action="store_true",
+        dest="config",
+        help="Open up config file for editing."
+    )
+    parser.add_argument(
+        "-u", "--update",
+        action="store_true",
+        dest="update",
+        help="Update config file."
+    )
+    parser.add_argument(
+        "-r", "--regex",
+        action="store_true",
+        dest="regex",
+        help="Use custom regex syntax.",
+        default=True
+    )
+    parser.add_argument(
+        "-m", "--mediaupdate",
+        action="store_true",
+        dest="mediaupdate",
+        help="Force addition of media files."
+    )
+    parser.add_argument(
+        "-R", "--recurse",
+        action="store_true",
+        dest="recurse",
+        help="Recursively scan subfolders."
+    )
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
     print("Attempting to connect to Anki...")
     try:
         wait_for_port(ANKI_PORT)
