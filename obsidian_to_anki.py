@@ -196,7 +196,9 @@ def load_anki():
         )
         return False
 
-
+class DuplicateError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
 
 class AnkiConnect:
     """Namespace for AnkiConnect functions."""
@@ -223,6 +225,8 @@ class AnkiConnect:
         if 'result' not in response:
             raise Exception('response is missing required result field')
         if response['error'] is not None:
+            if "Cannot create note because it is a duplicate" in response['error']:
+                raise DuplicateError(response['error'])
             raise Exception(response['error'])
         return response['result']
 
@@ -1580,10 +1584,16 @@ class Directory:
         notes_ids = AnkiConnect.parse(response[0])
         cards_ids = AnkiConnect.parse(response[1])
         for note_ids, file in zip(notes_ids, self.files):
-            file.note_ids = [
-                AnkiConnect.parse(response)
-                for response in AnkiConnect.parse(note_ids)
-            ]
+            all_responses = AnkiConnect.parse(note_ids)
+            file.note_ids = []
+            for response in all_responses:
+                parsed_response = None
+                try:
+                    parsed_response = AnkiConnect.parse(response)
+                except DuplicateError as e:
+                    print(f'ERROR: {e}')
+                finally:
+                    file.note_ids.append(parsed_response)
         for card_ids, file in zip(cards_ids, self.files):
             file.card_ids = AnkiConnect.parse(card_ids)
         for file in self.files:
