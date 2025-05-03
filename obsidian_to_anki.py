@@ -6,7 +6,6 @@ import urllib.request
 import configparser
 import os
 import collections
-import webbrowser
 import markdown
 import base64
 import argparse
@@ -16,12 +15,6 @@ import socket
 import subprocess
 import logging
 import hashlib
-try:
-    import gooey
-    GOOEY = True
-except ModuleNotFoundError:
-    print("Gooey not installed, switching to cli...")
-    GOOEY = False
 
 logging.basicConfig(
     filename='obsidian_to_anki_log.log',
@@ -48,12 +41,6 @@ NOTE_DICT_TEMPLATE = {
     "audio": list()
 }
 
-CONFIG_PATH = os.path.expanduser(
-    os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),
-        "obsidian_to_anki_config.ini"
-    )
-)
 CONFIG_DATA = dict()
 
 DATA_PATH = os.path.expanduser(
@@ -209,12 +196,6 @@ def load_anki():
         )
         return False
 
-
-def main():
-    """Main functionality of script."""
-    if not os.path.exists(CONFIG_PATH):
-        Config.update_config()
-    App()
 
 
 class AnkiConnect:
@@ -754,24 +735,6 @@ class Config:
             "Anki Profile", ""
         )
 
-    def update_config():
-        """Update config with new notes."""
-        print("Updating configuration file...")
-        config = configparser.ConfigParser()
-        config.optionxform = str
-        if os.path.exists(CONFIG_PATH):
-            print("Config file exists, reading...")
-            config.read(CONFIG_PATH, encoding='utf-8-sig')
-        note_types = AnkiConnect.invoke("modelNames")
-        config.setdefault("Custom Regexps", dict())
-        for note in note_types:
-            config["Custom Regexps"].setdefault(note, "")
-        Config.setup_syntax(config)
-        Config.setup_defaults(config)
-        with open(CONFIG_PATH, "w", encoding='utf_8') as configfile:
-            config.write(configfile)
-        print("Configuration file updated!")
-
     @staticmethod
     def load_syntax(config):
         """Reads and loads syntax from the config object."""
@@ -836,7 +799,7 @@ class Config:
         print("Loading configuration file...")
         config = configparser.ConfigParser()
         config.optionxform = str  # Allows for case sensitivity
-        config.read(CONFIG_PATH, encoding='utf-8-sig')
+        config.read(args.config_path, encoding='utf-8-sig')
         Config.load_syntax(config)
         Config.load_defaults(config)
         CONFIG_DATA["CUSTOM_REGEXPS"] = config["Custom Regexps"]
@@ -888,18 +851,6 @@ class App:
             Data.load_data_file()
         self.get_fields()
         self.get_ids()
-        if CONFIG_DATA["GUI"] and GOOEY:
-            self.setup_gui_parser()
-        else:
-            self.setup_cli_parser()
-        args = self.parser.parse_args()
-        if CONFIG_DATA["GUI"] and GOOEY:
-            if args.directory:
-                args.path = args.directory
-            elif args.file:
-                args.path = args.file
-            else:
-                args.path = False
         no_args = True
         if args.update:
             no_args = False
@@ -909,10 +860,6 @@ class App:
             no_args = False
             Data.create_data_file()
         self.gen_regexp()
-        if args.config:
-            no_args = False
-            webbrowser.open(CONFIG_PATH)
-            return
         if args.path:
             no_args = False
             current = os.getcwd()
@@ -990,79 +937,8 @@ class App:
                     "File Hashes": App.FILE_HASHES
                 }
             )
-        if no_args:
-            self.parser.print_help()
 
-    def setup_parser_optionals(self):
-        """Set up optional arguments for the parser."""
-        self.parser.add_argument(
-            "-c", "--config",
-            action="store_true",
-            dest="config",
-            help="Open up config file for editing."
-        )
-        self.parser.add_argument(
-            "-u", "--update",
-            action="store_true",
-            dest="update",
-            help="Update config file."
-        )
-        self.parser.add_argument(
-            "-r", "--regex",
-            action="store_true",
-            dest="regex",
-            help="Use custom regex syntax.",
-            default=CONFIG_DATA["Regex"]
-        )
-        self.parser.add_argument(
-            "-m", "--mediaupdate",
-            action="store_true",
-            dest="mediaupdate",
-            help="Force addition of media files."
-        )
-        self.parser.add_argument(
-            "-R", "--recurse",
-            action="store_true",
-            dest="recurse",
-            help="Recursively scan subfolders."
-        )
 
-    if GOOEY:
-        @ gooey.Gooey(use_cmd_args=True)
-        def setup_gui_parser(self):
-            """Set up the GUI argument parser."""
-            self.parser = gooey.GooeyParser(
-                description="Add cards to Anki from a markdown or text file."
-            )
-            path_group = self.parser.add_mutually_exclusive_group(
-                required=False
-            )
-            path_group.add_argument(
-                "-f", "--file",
-                help="Choose a file to scan.",
-                dest="file",
-                widget='FileChooser'
-            )
-            path_group.add_argument(
-                "-d", "--dir",
-                help="Choose a directory to scan.",
-                dest="directory",
-                widget='DirChooser'
-            )
-            self.setup_parser_optionals()
-
-    def setup_cli_parser(self):
-        """Setup the command-line argument parser."""
-        self.parser = argparse.ArgumentParser(
-            description="Add cards to Anki from a markdown or text file."
-        )
-        self.parser.add_argument(
-            "path",
-            default=False,
-            nargs="?",
-            help="Path to the file or directory you want to scan."
-        )
-        self.setup_parser_optionals()
 
     def gen_regexp(self):
         """Generate the regular expressions used by the app."""
@@ -1764,14 +1640,67 @@ class Directory:
         return {file.filename: file.hash for file in self.files}
 
 
+def valid_file_path(path):
+    if not os.path.isfile(path):
+        raise argparse.ArgumentTypeError(f"'{path}' is not a valid file path or file doesn't exist")
+    return path
+
+def parse_args():
+    """Setup the command-line argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Add cards to Anki from a markdown or text file."
+    )
+    parser.add_argument(
+        "path",
+        default=False,
+        nargs="?",
+        help="Path to the file or directory you want to scan."
+    )
+    parser.add_argument(
+        "-c", "--config",
+        default="obsidian_to_anki_config.ini",
+        dest="config_path",
+        type=valid_file_path,
+        help="Path to the config file you want to use"
+    )
+    parser.add_argument(
+        "-u", "--update",
+        action="store_true",
+        dest="update",
+        help="Update config file."
+    )
+    parser.add_argument(
+        "-r", "--regex",
+        action="store_true",
+        dest="regex",
+        help="Use custom regex syntax.",
+        default=True
+    )
+    parser.add_argument(
+        "-m", "--mediaupdate",
+        action="store_true",
+        dest="mediaupdate",
+        help="Force addition of media files."
+    )
+    parser.add_argument(
+        "-R", "--recurse",
+        action="store_true",
+        dest="recurse",
+        help="Recursively scan subfolders."
+    )
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
     print("Attempting to connect to Anki...")
     try:
         wait_for_port(ANKI_PORT)
     except TimeoutError:
         print("Couldn't connect to Anki, attempting to open Anki...")
         if load_anki():
-            main()
+            App()
     else:
         print("Connected!")
-        main()
+        App()
